@@ -27,7 +27,7 @@ use Zikula\ExtensionsModule\Entity\ExtensionEntity;
 use Zikula\ExtensionsModule\Helper\BundleSyncHelper;
 use Zikula\ExtensionsModule\Helper\ExtensionHelper;
 
-class ModuleHelper
+class CoreInstallerExtensionHelper
 {
     /**
      * @var ContainerInterface
@@ -54,7 +54,7 @@ class ModuleHelper
         $this->yamlHelper = $parameterHelper->getYamlHelper();
     }
 
-    public function installModule(string $moduleName): bool
+    public function install(string $moduleName): bool
     {
         $module = $this->container->get('kernel')->getModule($moduleName);
         /** @var AbstractCoreModule $module */
@@ -74,9 +74,9 @@ class ModuleHelper
     }
 
     /**
-     * Set an admin category for a module or set to default.
+     * Set an admin category for an extension or set to default.
      */
-    private function setModuleCategory(string $moduleName, string $translatedCategoryName): bool
+    private function setCategory(string $moduleName, string $translatedCategoryName): bool
     {
         $doctrine = $this->container->get('doctrine');
         $categoryRepository = $doctrine->getRepository('ZikulaAdminModule:AdminCategoryEntity');
@@ -96,9 +96,9 @@ class ModuleHelper
         return true;
     }
 
-    public function categorizeModules(): bool
+    public function categorize(): bool
     {
-        reset(ZikulaKernel::$coreModules);
+        reset(ZikulaKernel::$coreExtension);
         $systemModulesCategories = [
             'ZikulaExtensionsModule' => $this->translator->trans('System'),
             'ZikulaPermissionsModule' => $this->translator->trans('Users'),
@@ -115,30 +115,33 @@ class ModuleHelper
             'ZikulaSettingsModule' => $this->translator->trans('System'),
             'ZikulaRoutesModule' => $this->translator->trans('System'),
             'ZikulaMenuModule' => $this->translator->trans('Content'),
+            'ZikulaAtomTheme' => $this->translator->trans('Layout'),
+            'ZikulaBootstrapTheme' => $this->translator->trans('Layout'),
+            'ZikulaPrinterTheme' => $this->translator->trans('Layout'),
+            'ZikulaRssTheme' => $this->translator->trans('Layout'),
         ];
 
-        foreach (ZikulaKernel::$coreModules as $systemModule => $bundleClass) {
-            $this->setModuleCategory($systemModule, $systemModulesCategories[$systemModule]);
+        foreach (ZikulaKernel::$coreExtension as $systemModule => $bundleClass) {
+            $this->setCategory($systemModule, $systemModulesCategories[$systemModule]);
         }
 
         return true;
     }
 
     /**
-     * Scan the filesystem and sync the modules table. Set all core modules to active state.
+     * Scan the filesystem and sync the extensions table. Set all system extensions to active state.
      */
-    public function reSyncAndActivateModules(): bool
+    public function reSyncAndActivate(): bool
     {
         $bundleSyncHelper = $this->container->get(BundleSyncHelper::class);
-        $projectDir = $this->container->get('kernel')->getProjectDir();
-        $extensionsInFileSystem = $bundleSyncHelper->scanForBundles([$projectDir . '/src/system', $projectDir . '/src/modules']);
+        $extensionsInFileSystem = $bundleSyncHelper->scanForBundles(true);
         $bundleSyncHelper->syncExtensions($extensionsInFileSystem);
 
         $doctrine = $this->container->get('doctrine');
 
         /** @var ExtensionEntity[] $extensions */
         $extensions = $doctrine->getRepository('ZikulaExtensionsModule:ExtensionEntity')
-            ->findBy(['name' => array_keys(ZikulaKernel::$coreModules)]);
+            ->findBy(['name' => array_keys(ZikulaKernel::$coreExtension)]);
         foreach ($extensions as $extension) {
             $extension->setState(Constant::STATE_ACTIVE);
         }
@@ -148,10 +151,10 @@ class ModuleHelper
     }
 
     /**
-     * Attempt to upgrade ALL the core modules. Some will need it, some will not.
-     * Modules that do not need upgrading return TRUE as a result of the upgrade anyway.
+     * Attempt to upgrade ALL the core extensions. Some will need it, some will not.
+     * Extensions that do not need upgrading return TRUE as a result of the upgrade anyway.
      */
-    public function upgradeModules(): bool
+    public function upgrade(): bool
     {
         $coreModulesInPriorityUpgradeOrder = [
             'ZikulaExtensionsModule',
@@ -169,6 +172,11 @@ class ModuleHelper
             'ZikulaMailerModule',
             'ZikulaSearchModule',
             'ZikulaMenuModule',
+            // themes don't have an upgrade routine in place yet
+//            'ZikulaBootstrapTheme',
+//            'ZikulaAtomTheme',
+//            'ZikulaRssTheme',
+//            'ZikulaPrinterTheme',
         ];
         $result = true;
         foreach ($coreModulesInPriorityUpgradeOrder as $moduleName) {
@@ -190,18 +198,18 @@ class ModuleHelper
          */
         switch ($currentCoreVersion) {
             case '1.4.3':
-                $this->installModule('ZikulaMenuModule');
-                $this->reSyncAndActivateModules();
-                $this->setModuleCategory('ZikulaMenuModule', $this->translator->trans('Content'));
+                $this->install('ZikulaMenuModule');
+                $this->reSyncAndActivate();
+                $this->setCategory('ZikulaMenuModule', $this->translator->trans('Content'));
             case '1.4.4':
                 // nothing
             case '1.4.5':
                 // Menu module was introduced in 1.4.4 but not installed on upgrade
                 $schemaManager = $doctrine->getConnection()->getSchemaManager();
                 if (!$schemaManager->tablesExist(['menu_items'])) {
-                    $this->installModule('ZikulaMenuModule');
-                    $this->reSyncAndActivateModules();
-                    $this->setModuleCategory('ZikulaMenuModule', $this->translator->trans('Content'));
+                    $this->install('ZikulaMenuModule');
+                    $this->reSyncAndActivate();
+                    $this->setCategory('ZikulaMenuModule', $this->translator->trans('Content'));
                 }
             case '1.4.6':
                 // nothing needed
@@ -252,7 +260,7 @@ class ModuleHelper
         }
 
         // always do this
-        $this->reSyncAndActivateModules();
+        $this->reSyncAndActivate();
 
         return true;
     }
